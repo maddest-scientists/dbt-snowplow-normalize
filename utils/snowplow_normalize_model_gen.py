@@ -1,6 +1,10 @@
 import sys
-from functions.snowplow_model_gen_funcs import *
 import re
+import json
+
+from functions.snowplow_model_gen_funcs import *
+from functions.snowplow_model_gen_docs import docs_content, write_docs_file
+
 
 ## NOTE ##
 # vendorPrefix is not currently supported for prioritising specific registries
@@ -20,6 +24,8 @@ if not os.path.isdir('models') or not os.path.isfile('dbt_project.yml'):
 
 # Overwrite default verboseprint now we have flag
 verboseprint = print if args.verbose else lambda *a, **k: None
+
+DOCUMENTATION_FILE = '_models_events_normalized.yml'
 
 #######################
 # Load + Parse config #
@@ -47,6 +53,7 @@ flat_cols = []
 context_aliases = []
 table_names = []
 versions = []
+event_configs = []
 for event in config.get('events'):
     # Check for things you can't in jsonschema i.e. lengths match. Also check aliases only provided if schema is to avoid overly complex schema rules
     if event.get('self_describing_event_aliases') is not None:
@@ -70,6 +77,7 @@ for event in config.get('events'):
     context_aliases.append(event.get('context_aliases'))
     table_names.append(event.get('table_name'))
     versions.append(event.get('version'))
+    event_configs.append(event.get('config', {}))
 
 
 # Parse users
@@ -185,10 +193,17 @@ for i in range(len(event_names)):
     flat_col = sorted(list(set(flat_col).difference({'event_id', 'collector_tstamp'})))
     context_alias = context_aliases[i]
     sde_alias = sde_aliases[i]
+    event_config = event_configs[i]
 
-    sde_cols, sde_keys, sde_types, sde_alias = get_cols_keys_types_aliases(sde_url, sde_alias, 'UNSTRUCT_EVENT_', schemas_list, repo_keys, validate_schemas)
-    context_cols, context_keys, context_types, context_alias = get_cols_keys_types_aliases(context_url, context_alias, 'CONTEXTS_', schemas_list, repo_keys, validate_schemas)
+    deep = event_config.get('deep', True)
+    filters = event_config.get('filters', [])
 
+    sde_cols, sde_keys, sde_types, sde_alias, sde_docs = get_cols_keys_types_aliases_docs(
+        sde_url, sde_alias, 'UNSTRUCT_EVENT_', schemas_list, repo_keys, validate_schemas, deep, filters
+    )
+    context_cols, context_keys, context_types, context_alias, context_docs = get_cols_keys_types_aliases_docs(
+        context_url, context_alias, 'CONTEXTS_', schemas_list, repo_keys, validate_schemas, deep, filters
+    )
 
     # Write model string
     model_content = f"""{{{{ config(
@@ -233,12 +248,27 @@ for i in range(len(event_names)):
 ) }}}}
 """
 
+    doc_filepath = os.path.join('models', models_folder, DOCUMENTATION_FILE)
+    documentation_content = None
+
+    try:
+        documentation_content = docs_content(
+            doc_filepath, sde_docs, sde_keys, model_name, documentation_content
+        )
+    except Exception as e:
+        verboseprint(f'Error getting documentation file {doc_filepath}: {e}')
 
     # Write out to file
     verboseprint(f'Model content for {model_name}, saving to {filename}:')
     verboseprint(model_content)
+
+    if documentation_content:
+        verboseprint(f'Documentation content for {model_name}, saving to {doc_filepath}:')
+        verboseprint(documentation_content)
+
     if not args.dryRun:
         write_model_file(filename, model_content, overwrite = overwrite)
+        write_docs_file(doc_filepath, documentation_content, overwrite = overwrite)
 
 
 ############################
