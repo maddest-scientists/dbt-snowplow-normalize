@@ -1,2 +1,4 @@
 jsonschema>=3.2.0
 requests>=2.0.0
+pyyaml
+jsonpath-ng==1.5.3
