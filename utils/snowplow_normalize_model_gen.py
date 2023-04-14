@@ -265,6 +265,8 @@ for i in range(len(event_names)):
     if documentation_content:
         verboseprint(f'Documentation content for {model_name}, saving to {doc_filepath}:')
         verboseprint(documentation_content)
+    else:
+        verboseprint(f'No documentation content for {model_name}')
 
     if not args.dryRun:
         write_model_file(filename, model_content, overwrite = overwrite)
