@@ -70,7 +70,10 @@ def docs_content(doc_filepath, sde_docs, sde_keys, model_name, documentation_con
         return
 
     if not os.path.exists(doc_filepath): 
-        return
+        os.makedirs(os.path.dirname(doc_filepath), exist_ok=True)
+        return compose_documentation_content(
+            sde_docs, sde_keys, model_name, {}
+        )
 
     with open(doc_filepath, 'r') as stream:
         documentation_content = yaml.safe_load(stream)
