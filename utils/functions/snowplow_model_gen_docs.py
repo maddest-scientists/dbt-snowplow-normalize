@@ -30,29 +30,50 @@ def get_docs(jsonData: dict, deep: bool = True, filters: list = None) -> list:
     
     return descriptions
 
+def order_columns(obj, priority_columns):
+    if not isinstance(obj, dict):
+        return obj
 
-def compose_documentation_content(sde_docs, sde_keys, model_name, documentation_content):
+    ordered = OrderedDict()
+
+    for key in priority_columns:
+        if key in obj:
+            ordered[key] = obj[key]
+
+    for key in sorted(obj.keys()):
+        if key not in priority_columns:
+            ordered[key] = obj[key]
+
+    return ordered
+
+def get_model_description(schemas_descriptions):
+    if len(schemas_descriptions) == 0:
+        return
+    
+    joined_schema_descriptions = '\n\t '.join(schemas_descriptions)
+    description = f"Normalized event model from schemas with the following descriptions: {joined_schema_descriptions}"
+    
+    return description
+    
+
+def compose_documentation_content(sde_docs, sde_keys, model_name, documentation_content=None):
     if not documentation_content:
         documentation_content = OrderedDict()
         documentation_content['version'] = 2
         documentation_content['tables'] = []
 
-    docs_tables = documentation_content.get('tables')
-    doc_table = None
+    docs_tables = documentation_content.get('tables', [])
+    schemas_descriptions = []
+    doc_table_index = None
 
     for index, _table in enumerate(docs_tables):
         if _table['name'] == model_name:
             doc_table = OrderedDict(_table)
-            docs_tables[index] = doc_table
-    
-    if not doc_table:
+            doc_table_index = index
+
+    if doc_table_index is None:
         doc_table = OrderedDict()
         doc_table['name'] = model_name
-        doc_table['columns'] = []
-
-        docs_tables.append(doc_table)
-
-    schemas_descriptions = []
 
     doc_table['columns'] = []
     for event_index, event_keys in enumerate(sde_keys):
@@ -65,41 +86,35 @@ def compose_documentation_content(sde_docs, sde_keys, model_name, documentation_
             description = event_docs[key_index]
             doc_item['name'] = key
 
-            if description != '':
+            if description:
                 doc_item['description'] = description
 
+            doc_item = order_columns(doc_item, ['name', 'description'])
             doc_table['columns'].append(doc_item)
 
-    joined_schema_descriptions = '\n\t '.join(schemas_descriptions)
-    if len(joined_schema_descriptions):
-        description = f"Normalized event model from schames with the following descriptions: {joined_schema_descriptions}"
-        doc_table['description'] = description
+    model_description = get_model_description(schemas_descriptions)
+    if model_description:
+        doc_table['description'] = model_description
 
-    priority_keys = ['name', 'description', 'columns']
-    all_keys  = list(doc_table.keys())
+    doc_table = order_columns(doc_table, ['name', 'description', 'columns'])
+    if doc_table_index is not None:
+        docs_tables[doc_table_index] = doc_table
+    else:
+        docs_tables.append(doc_table)
 
-    ordered_keys = priority_keys + sorted([
-        key for key in all_keys if key not in priority_keys
-    ])
+    documentation_content = order_columns(
+        documentation_content, ['version', 'description', 'tables']
+    )
 
-    final = OrderedDict()
+    return documentation_content
 
-    for key in ordered_keys:
-        final[key] = doc_table[key]
-
-    return final
-
-def docs_content(doc_filepath, sde_docs, sde_keys, model_name, documentation_content):
-    documentation_content = None
-    
+def docs_content(doc_filepath, sde_docs, sde_keys, model_name, documentation_content = None):
     if not sde_docs:
         return
 
     if not os.path.exists(doc_filepath): 
         os.makedirs(os.path.dirname(doc_filepath), exist_ok=True)
-        return compose_documentation_content(
-            sde_docs, sde_keys, model_name, {}
-        )
+        return compose_documentation_content(sde_docs, sde_keys, model_name)
 
     with open(doc_filepath, 'r') as stream:
         documentation_content = yaml.safe_load(stream)

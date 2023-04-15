@@ -249,14 +249,9 @@ for i in range(len(event_names)):
 """
 
     doc_filepath = os.path.join('models', models_folder, DOCUMENTATION_FILE)
-    documentation_content = None
-
-    try:
-        documentation_content = docs_content(
-            doc_filepath, sde_docs, sde_keys, model_name, documentation_content
-        )
-    except Exception as e:
-        verboseprint(f'Error getting documentation file {doc_filepath}: {e}')
+    documentation_content = docs_content(
+        doc_filepath, sde_docs, sde_keys, model_name
+    )
 
     # Write out to file
     verboseprint(f'Model content for {model_name}, saving to {filename}:')
