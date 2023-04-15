@@ -20,9 +20,13 @@ def get_docs(jsonData: dict, deep: bool = True, filters: list = None) -> list:
     fields = get_fields_from_schema(jsonData, deep, filters)
     descriptions = []
 
+    model_description = jsonData['description']
+
     for field in fields:
         description = field.get('description', '')
         descriptions.append(description)
+
+    descriptions = (model_description, descriptions)
     
     return descriptions
 
@@ -48,12 +52,17 @@ def compose_documentation_content(sde_docs, sde_keys, model_name, documentation_
 
         docs_tables.append(doc_table)
 
+    schemas_descriptions = []
+
     doc_table['columns'] = []
     for event_index, event_keys in enumerate(sde_keys):
+        schema_description, event_docs = sde_docs[event_index]
+        schemas_descriptions.append(schema_description)
+
         for key_index, key in enumerate(event_keys):
             doc_item = OrderedDict()
 
-            description = sde_docs[event_index][key_index]
+            description = event_docs[key_index]
             doc_item['name'] = key
 
             if description != '':
@@ -61,7 +70,24 @@ def compose_documentation_content(sde_docs, sde_keys, model_name, documentation_
 
             doc_table['columns'].append(doc_item)
 
-    return documentation_content
+    joined_schema_descriptions = '\n\t '.join(schemas_descriptions)
+    if len(joined_schema_descriptions):
+        description = f"Normalized event model from schames with the following descriptions: {joined_schema_descriptions}"
+        doc_table['description'] = description
+
+    priority_keys = ['name', 'description', 'columns']
+    all_keys  = list(doc_table.keys())
+
+    ordered_keys = priority_keys + sorted([
+        key for key in all_keys if key not in priority_keys
+    ])
+
+    final = OrderedDict()
+
+    for key in ordered_keys:
+        final[key] = doc_table[key]
+
+    return final
 
 def docs_content(doc_filepath, sde_docs, sde_keys, model_name, documentation_content):
     documentation_content = None
