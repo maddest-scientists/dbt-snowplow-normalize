@@ -28,9 +28,9 @@ select
         {%- for col, col_ind in zip(sde_cols_clean, range(sde_cols_clean|length)) -%} {# Loop over each sde column #}
             {%- for key, type in zip(sde_keys[col_ind], sde_types[col_ind]) -%} {# Loop over each key within the sde column #}
                 {% if sde_aliases|length > 0 -%}
-                    , get_path({{ col }}, {{ key }})::{{ type }} as '{{ sde_aliases[col_ind] }}_{{ snowplow_normalize.snakeify_case(key) }}' {# Alias should align across all warehouses in snakecase #}
+                    , get_path({{ col }}, '{{ key }}')::{{ type }} as '{{ sde_aliases[col_ind] }}_{{ snowplow_normalize.snakeify_case(key) }}' {# Alias should align across all warehouses in snakecase #}
                 {% else -%}
-                    , get_path({{ col }}, {{ key }})::{{ type }} as '{{ snowplow_normalize.snakeify_case(key) }}'
+                    , get_path({{ col }}, '{{ key }}')::{{ type }} as '{{ snowplow_normalize.snakeify_case(key) }}'
                 {% endif -%}
             {%- endfor -%}
         {%- endfor -%}
