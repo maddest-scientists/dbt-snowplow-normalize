@@ -1,4 +1,5 @@
 from jsonpath_ng.ext import parse as jsonpath_parse
+import re
 
 
 def get_filtered_keys(jsonData: dict, filters: list = None):
@@ -61,3 +62,13 @@ def get_fields_from_schema(jsonData: dict, deep: bool = True, filters: list = No
             items.append(properties)
 
     return items
+
+def snakeify_case(text):
+    camel_string1 = r'([A-Z]+)([A-Z][a-z])'
+    camel_string2 = r'([a-z\d])([A-Z])'
+    replace_string = '\\1_\\2'
+
+    output_text = re.sub(camel_string2, replace_string, re.sub(camel_string1, replace_string, text)).replace('-', '_').lower()
+    # output_text = output_text.replace('.', '_')
+
+    return output_text
