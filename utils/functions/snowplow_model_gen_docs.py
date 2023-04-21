@@ -62,7 +62,7 @@ def get_model_description(schemas_descriptions):
     return description
     
 
-def compose_documentation_content(event_names, sde_docs, sde_keys, sde_alias, model_name, documentation_content=None):
+def compose_documentation_content(event_names, flat_col, sde_docs, sde_keys, sde_alias, model_name, documentation_content=None):
     if not documentation_content:
         documentation_content = OrderedDict()
         documentation_content['version'] = 2
@@ -82,7 +82,11 @@ def compose_documentation_content(event_names, sde_docs, sde_keys, sde_alias, mo
         doc_table['name'] = model_name
 
     multiple_events = len(event_names) > 1
-    doc_table['columns'] = []
+    doc_table['columns'] = [
+        {
+            "name": col
+        } for col in ["event_id", "collector_tstamp"] + flat_col
+    ]
 
     for event_index, event_keys in enumerate(sde_keys):
         schema_description, event_docs = sde_docs[event_index]
@@ -120,19 +124,19 @@ def compose_documentation_content(event_names, sde_docs, sde_keys, sde_alias, mo
 
     return documentation_content
 
-def docs_content(doc_filepath, event_names, sde_docs, sde_keys, sde_alias, model_name, documentation_content = None):
+def docs_content(doc_filepath, event_names, flat_col, sde_docs, sde_keys, sde_alias, model_name, documentation_content = None):
     if not sde_docs:
         return
 
     if not os.path.exists(doc_filepath): 
         os.makedirs(os.path.dirname(doc_filepath), exist_ok=True)
-        return compose_documentation_content(event_names, sde_docs, sde_keys, sde_alias, model_name)
+        return compose_documentation_content(event_names, flat_col, sde_docs, sde_keys, sde_alias, model_name)
 
     with open(doc_filepath, 'r') as stream:
         documentation_content = yaml.safe_load(stream)
 
     documentation_content = compose_documentation_content(
-        event_names, sde_docs, sde_keys, sde_alias, model_name, documentation_content
+        event_names, flat_col, sde_docs, sde_keys, sde_alias, model_name, documentation_content
     )
 
     return documentation_content
