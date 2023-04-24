@@ -299,10 +299,14 @@ type_hierarchy = {
     "string": 6
 }
 
+current_path = os.path.abspath(os.path.dirname(__file__))
+
 # Hard coded default resolver and schemas to use before we have checked the resolver is valid
 default_resolver = {"schema": "iglu:com.snowplowanalytics.iglu/resolver-config/jsonschema/1-0-1", "data": {"cacheSize": 500, "repositories": [{"name": "Iglu Central", "priority": 0, "vendorPrefixes": [ "com.snowplowanalytics" ], "connection": {"http": {"uri": "http://iglucentral.com"}}}]}}
-resolver_schema = json.load("../schemas/resolver.json")
-config_schema = json.load("../schemas/config.json")
+with open(os.path.join(current_path, '../schemas/resolver.json')) as f:
+    resolver_schema = json.load(f)
+with open(os.path.join(current_path, '../schemas/config.json')) as f:
+    config_schema = json.load(f)
 
 config_help = """
 JSON Config file structure:
