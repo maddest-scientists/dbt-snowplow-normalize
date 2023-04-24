@@ -1,6 +1,8 @@
+import pyaml
 import yaml
 import os
 import json
+import copy
 from collections import OrderedDict
 from jsonpath_ng.ext import parse as jsonpath_parse
 
@@ -60,7 +62,18 @@ def get_model_description(schemas_descriptions):
     description = f"Normalized event model from schemas with the following descriptions: {joined_schema_descriptions}"
     
     return description
-    
+
+def keep_column_changes(table, column, current_value):
+    col = [col for col in table['columns'] if col['name'] == column]
+
+    if not col:
+        return
+
+    for col_key in col[0].keys():
+        if col_key == 'name':
+            continue
+
+        current_value[col_key] = col[0][col_key]
 
 def compose_documentation_content(event_names, flat_col, sde_docs, sde_keys, sde_alias, model_name, documentation_content=None):
     if not documentation_content:
@@ -68,7 +81,11 @@ def compose_documentation_content(event_names, flat_col, sde_docs, sde_keys, sde
         documentation_content['version'] = 2
         documentation_content['tables'] = []
 
+    if type(documentation_content) == str:
+        documentation_content = json.loads(documentation_content)
+
     docs_tables = documentation_content.get('tables', [])
+
     schemas_descriptions = []
     doc_table_index = None
 
@@ -82,11 +99,16 @@ def compose_documentation_content(event_names, flat_col, sde_docs, sde_keys, sde
         doc_table['name'] = model_name
 
     multiple_events = len(event_names) > 1
-    doc_table['columns'] = [
-        {
-            "name": col
-        } for col in ["event_id", "collector_tstamp"] + flat_col
-    ]
+
+    file_table = copy.deepcopy(dict(doc_table))
+
+    # keep changes done to the file, like tests
+    doc_table['columns'] = []
+    for col in ["event_id", "collector_tstamp"] + flat_col:
+        entry = OrderedDict({"name": col})
+        keep_column_changes(file_table, col, entry)
+
+        doc_table['columns'].append(entry)
 
     for event_index, event_keys in enumerate(sde_keys):
         schema_description, event_docs = sde_docs[event_index]
@@ -105,14 +127,26 @@ def compose_documentation_content(event_names, flat_col, sde_docs, sde_keys, sde
             if description:
                 doc_item['description'] = description
 
-            doc_item = order_columns(doc_item, ['name', 'description'])
+            keep_column_changes(file_table, doc_item['name'], doc_item)
+            keys = ['name', 'description']
+            keys = keys + list(set(doc_item.keys()) - set(keys))
+
+            doc_item = order_columns(doc_item, keys)
             doc_table['columns'].append(doc_item)
 
     model_description = get_model_description(schemas_descriptions)
     if model_description:
         doc_table['description'] = model_description
 
-    doc_table = order_columns(doc_table, ['name', 'description', 'columns'])
+    for file_table_key in file_table.keys():
+        if file_table_key not in doc_table.keys():
+            doc_table[file_table_key] = file_table[file_table_key]
+
+    generated_columns = ['name', 'description', 'columns']
+    other_columns = list(set(doc_table.keys()) - set(generated_columns))
+    all_columns = generated_columns + other_columns
+
+    doc_table = order_columns(doc_table, all_columns)
     if doc_table_index is not None:
         docs_tables[doc_table_index] = doc_table
     else:
@@ -143,8 +177,8 @@ def docs_content(doc_filepath, event_names, flat_col, sde_docs, sde_keys, sde_al
 
 def get_docs_yaml(documentation_content):
     documentation_content = json.dumps(documentation_content)
-    documentation_content = yaml.dump(
-        yaml.safe_load(documentation_content), default_flow_style=False, sort_keys=False
+    documentation_content = pyaml.dump(
+        yaml.safe_load(documentation_content), sort_keys=False, default_style='"', vspacing=1
     )
 
     return documentation_content
