@@ -64,7 +64,7 @@ def get_model_description(schemas_descriptions):
     return description
 
 def keep_column_changes(table, column, current_value):
-    col = [col for col in table['columns'] if col['name'] == column]
+    col = [col for col in table.get('columns', []) if col.get('name') == column]
 
     if not col:
         return
