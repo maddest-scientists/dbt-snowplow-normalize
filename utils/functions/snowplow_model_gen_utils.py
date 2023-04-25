@@ -38,30 +38,43 @@ def get_fields_from_schema(jsonData: dict, deep: bool = True, filters: list = No
     paths = get_leafs(_paths)
     paths = sorted(paths)
 
-    items = []
+    return_items = []
+    return_paths = []
+
+    array_parents = []
 
     for path in paths:
         if path in filtered:
             continue
 
-        if return_keys:
-            items.append(path)
+        if any([path != _parent and path.startswith(_parent) for _parent in array_parents]):
             continue
 
         path_lst = path.split('.')
         if len(path_lst) == 1:
             properties = jsonData['properties'][path]
-            items.append(properties)
         else:
             properties = jsonData['properties']
+            current_path = []
+
             for _path in path_lst:
+                current_path.append(_path)
+                current_path_str = '.'.join(current_path)
+                array_type_test = (properties.get('type') == 'array' or "array" in properties.get('type', []))
+
+                if _path == 'items' and array_type_test:
+                    array_parents.append(current_path_str)
+                    path = ''.join(current_path[:-1])
+                    break
+
                 properties = properties[_path]
                 if 'properties' in properties:
                     properties = properties['properties']
 
-            items.append(properties)
+        return_items.append(properties)
+        return_paths.append(path)
 
-    return items
+    return return_paths if return_keys else return_items
 
 def snakeify_case(text):
     camel_string1 = r'([A-Z]+)([A-Z][a-z])'
