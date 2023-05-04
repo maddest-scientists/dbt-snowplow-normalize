@@ -79,17 +79,17 @@ def compose_documentation_content(event_names, flat_col, sde_docs, sde_keys, sde
     if not documentation_content:
         documentation_content = OrderedDict()
         documentation_content['version'] = 2
-        documentation_content['tables'] = []
+        documentation_content['models'] = []
 
     if type(documentation_content) == str:
         documentation_content = json.loads(documentation_content)
 
-    docs_tables = documentation_content.get('tables', [])
+    doc_models = documentation_content.get('models', [])
 
     schemas_descriptions = []
     doc_table_index = None
 
-    for index, _table in enumerate(docs_tables):
+    for index, _table in enumerate(doc_models):
         if _table['name'] == model_name:
             doc_table = OrderedDict(_table)
             doc_table_index = index
@@ -148,12 +148,12 @@ def compose_documentation_content(event_names, flat_col, sde_docs, sde_keys, sde
 
     doc_table = order_columns(doc_table, all_columns)
     if doc_table_index is not None:
-        docs_tables[doc_table_index] = doc_table
+        doc_models[doc_table_index] = doc_table
     else:
-        docs_tables.append(doc_table)
+        doc_models.append(doc_table)
 
     documentation_content = order_columns(
-        documentation_content, ['version', 'description', 'tables']
+        documentation_content, ['version', 'description', 'models']
     )
 
     return documentation_content
