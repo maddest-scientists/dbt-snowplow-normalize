@@ -7,6 +7,11 @@ from urllib.parse import urlparse
 import json
 import argparse
 import copy
+from jsonpath_ng.ext import parse as jsonpath_parse
+
+from .snowplow_model_gen_docs import get_docs
+from .snowplow_model_gen_utils import get_fields_from_schema, get_filtered_keys
+
 
 verboseprint = lambda *a, **k: None
 
@@ -29,7 +34,7 @@ def write_model_file(filename: str, model_code: str, overwrite: bool = True):
         with open(filename, 'w') as f:
             f.write(model_code)
 
-def get_types(jsonData: dict) -> list:
+def get_types(jsonData: dict, deep: bool = True, filters: list = None) -> list:
     """Get a list of types from a Snowplow schema
 
     Args:
@@ -38,22 +43,26 @@ def get_types(jsonData: dict) -> list:
     Returns:
         list: A list of types for the properties in your schema
     """
+
+    fields = get_fields_from_schema(jsonData, deep, filters)
     types = []
-    for val in jsonData['properties'].values():
-        if val.get('type') is not None:
-            cur_type = val.get('type')
+
+    for field in fields:
+        if field.get('type') is not None:
+            cur_type = field.get('type')
             # If it is a list get the max based on the hierarchy e.g. int and str would be str
             types.append(max([cur_type.lower()] if isinstance(cur_type, str) else [type.lower() for type in cur_type], key = lambda x: type_hierarchy[x]))
-        elif val.get('enum') is not None:
+        elif field.get('enum') is not None:
             try:
                 # "Check" the type that is in the list of options
-                check_type = [float(option) for option in val.get('enum')]
+                check_type = [float(option) for option in field.get('enum')]
                 types.append('number')
             except ValueError:
                 types.append('string')
         else:
             # Should never reach here as we validated the JSON but just incase
-            raise ValueError(f'Excpted one of "type" or "enum" in property {val}')
+            raise ValueError(f'Expected one of "type" or "enum" in property {field}')
+
     return [type if type != 'null' else 'boolean' for type in types] # Can't have a null type column, everything else exists in snowflake as is, not needed for other warehouses
 
 def url_to_column(str: str) -> str:
@@ -229,7 +238,7 @@ def parse_args(args: list):
     parser.add_argument('--cleanUp', dest = 'cleanUp', action = 'store_true', default = False, help = 'delete any models not present in your config and exit (no models will be generated)')
     return parser.parse_args(args)
 
-def get_cols_keys_types_aliases(urls: list, aliases: list, prefix: str, schemas_list: dict, repo_keys: dict, validate_schemas: bool) -> tuple:
+def get_cols_keys_types_aliases_docs(urls: list, aliases: list, prefix: str, schemas_list: dict, repo_keys: dict, validate_schemas: bool, deep: bool = True, filters: list = None) -> tuple:
     """Get the columns, keys, types, and aliases for the sdes or contexts
 
     Args:
@@ -256,16 +265,22 @@ def get_cols_keys_types_aliases(urls: list, aliases: list, prefix: str, schemas_
                 raise ValueError(f'Validation of schema {urls[i]} failed.')
         # Generate final form data for insert into model
         cols = [prefix + url_to_column(url) for url in url_cut]
-        keys = [list(sde.get('properties').keys()) for sde in jsons]
-        types = [get_types(sde) for sde in jsons]
+
+        keys = []
+        for sde in jsons:
+            keys.append(get_fields_from_schema(sde, deep, filters, True))
+
+        types = [get_types(sde, deep, filters) for sde in jsons]
+        docs = [get_docs(sde, deep, filters) for sde in jsons]
         if aliases is None and len(urls) > 1:
             aliases = [event.get('self').get('name') for event in jsons]
     else:
         cols = None
         keys = None
         types = None
+        docs = None
 
-    return (cols, keys, types, aliases)
+    return (cols, keys, types, aliases, docs)
 
 
 # Lookups
@@ -284,10 +299,14 @@ type_hierarchy = {
     "string": 6
 }
 
+current_path = os.path.abspath(os.path.dirname(__file__))
+
 # Hard coded default resolver and schemas to use before we have checked the resolver is valid
 default_resolver = {"schema": "iglu:com.snowplowanalytics.iglu/resolver-config/jsonschema/1-0-1", "data": {"cacheSize": 500, "repositories": [{"name": "Iglu Central", "priority": 0, "vendorPrefixes": [ "com.snowplowanalytics" ], "connection": {"http": {"uri": "http://iglucentral.com"}}}]}}
-resolver_schema = {"$schema": "http://iglucentral.com/schemas/com.snowplowanalytics.self-desc/schema/jsonschema/1-0-0#", "self":{"vendor": "com.snowplowanalytics.iglu", "name": "resolver-config", "format": "jsonschema", "version": "1-0-3"}, "type": "object", "properties": {"cacheSize": {"type": "number"}, "cacheTtl": {"type": ["integer", "null"], "minimum": 0}, "repositories": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "priority": {"type": "number"}, "vendorPrefixes": {"type": "array", "items": {"type": "string"}}, "connection": {"type": "object", "oneOf": [{"properties": {"embedded": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"], "additionalProperties":  False }}, "required": ["embedded"], "additionalProperties":  False}, {"properties": {"http": {"type": "object", "properties": {"uri": {"type": "string", "format": "uri"}, "apikey": {"type": ["string", "null"]}}, "required": [ "uri" ], "additionalProperties":  False } }, "required": [ "http" ], "additionalProperties":  False }]}}, "required": [ "name", "priority", "vendorPrefixes", "connection" ], "additionalProperties":  False }}}}
-config_schema = { "description": "Schema for the Snowplow dbt normalize python script configuration", "self": { "name": "normalize-config", "format": "jsonschema", "version": "2-1-0" }, "properties": { "config": { "type": "object", "properties": { "resolver_file_path": { "type": "string", "description": "relative path to your resolver config json, or 'default' to use iglucentral only" }, "filtered_events_table_name": { "type": "string", "description": "name of filtered events table, if not provided it will not be generated" }, "users_table_name": { "type": "string", "description": "name of users table, default events_users if user schema(s) provided" }, "validate_schemas": { "type": "boolean", "description": "if you want to validate schemas loaded from each iglu registry or not, default true" }, "overwrite": { "type": "boolean", "description": "overwrite existing model files or not, default true" }, "models_folder": { "type": "string", "description": "folder under models/ to place the models, default snowplow_normalized_events" }, "models_prefix": { "type": "string", "description": "prefix used for models when table_name is not provided, use '' for no prefix, default snowplow" } }, "required": [ "resolver_file_path" ], "additionalProperties": False }, "events": { "type": "array", "items": { "type": "object", "properties": { "event_names": { "type": "array", "items": { "type": "string", "minItems": 1 }, "description": "name(s) of the event type(s), value of the event_name column in your warehouse" }, "event_columns": { "type": "array", "items": { "type": "string" }, "description": "array of strings of flat column names from the events table to include in the model" }, "self_describing_event_schemas": { "type": "array", "items": { "type": "string" }, "description": "`iglu:com.` type url(s) for the self-describing event(s) to include in the model" }, "self_describing_event_aliases": { "type": "array", "items": { "type": "string" }, "description": "array of strings of prefixes to the column alias for self describing events" }, "context_schemas": { "type": "array", "items": { "type": "string" }, "description": "array of strings of `iglu:com.` type url(s) for the context/entities to include in the model" }, "context_aliases": { "type": "array", "items": { "type": "string" }, "description": "array of strings of prefixes to the column alias for context/entities" }, "table_name": { "type": "string", "description": "name of the model, default is the event_name" }, "version": { "type": "string", "minLength": 1, "maxLength": 1, "description": "version number to append to table name, if (one) self_describing_event_schema is provided uses major version number from that, default 1" } }, "if": { "properties": { "event_names": { "minItems": 2 } } }, "then": { "anyOf": [ { "required": [ "event_names", "self_describing_event_schemas", "version", "table_name" ] }, { "required": [ "event_names", "context_schemas", "version", "table_name" ] }, { "required": [ "event_names", "event_columns", "version", "table_name" ] } ] }, "else": { "anyOf": [ { "required": [ "event_names", "self_describing_event_schemas" ] }, { "required": [ "event_names", "context_schemas" ] }, { "required": [ "event_names", "event_columns" ] } ] }, "additionalProperties": False }, "minItems": 1 }, "users": { "type": "object", "properties": { "user_id": { "type": "object", "properties": { "id_column": { "type": "string", "description": "name of column or attribute in the schema that defines your user_id, will be converted to a string in Snowflake" }, "id_self_describing_event_schema": { "type": "string", "description": "`iglu:com.` type url for the self-describing event schema that your user_id column is in, used over id_context_schema if both provided" }, "id_context_schema": { "type": "string", "description": "`iglu:com.` type url for the context schema that your user_id column is in" }, "alias": { "type": "string", "description": "alias to apply to the id column" } }, "additionalProperties": False, "required": [ "id_column" ] }, "user_contexts": { "type": "array", "items": { "type": "string", "description": "array of strings of iglu:com. type url(s) for the context/entities to add to your users table as columns" } }, "user_columns": { "type": "array", "items": { "type": "string", "description": "array of strings of flat column names from the events table to include in the model" } } }, "anyOf" : [ {"required": [ "user_contexts" ]}, {"required": [ "user_columns" ]} ], "additionalProperties": False } }, "additionalProperties": False, "type": "object", "required": [ "config", "events" ]}
+with open(os.path.join(current_path, '../schemas/resolver.json')) as f:
+    resolver_schema = json.load(f)
+with open(os.path.join(current_path, '../schemas/config.json')) as f:
+    config_schema = json.load(f)
 
 config_help = """
 JSON Config file structure:
@@ -310,7 +329,8 @@ JSON Config file structure:
             "context_schemas": <optional (>=1 of) - array: array of strings of `iglu:com.` type url(s) for the context/entities to include in the model>,
             "context_aliases": <optional - array: array of strings of prefixes to the column alias for context/entities>,
             "table_name": <optional if only 1 event name, otherwise required - string: name of the model, default is the event_name>,
-            "version": <optional if only 1 event name, otherwise required - string (length 1): version number to append to table name, if (one) self_describing_event_schema is provided uses major version number from that, default 1>
+            "version": <optional if only 1 event name, otherwise required - string (length 1): version number to append to table name, if (one) self_describing_event_schema is provided uses major version number from that, default 1>,
+            "config": <optional - object: config object to specify additional configuration for this event>
         },
         {
             ...
